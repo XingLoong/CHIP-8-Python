@@ -15,5 +15,6 @@ Thumbs.db
 
 # Logs and temporary files
 *.log
-font.py
 test_cpu.py
+test_pyglet.py
+ROMs

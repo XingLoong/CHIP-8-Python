@@ -1,24 +1,30 @@
 import pyglet
 from pyglet import shapes
 from cpu import CPU
+from keypad import Keypad
 
 SCALE = 10
 WIDTH = 64 * SCALE
 HEIGHT = 32 * SCALE
 
-cpu = CPU()
-cpu.memory.load_rom("./ROMs/3-corax+.ch8")
-
 window = pyglet.window.Window(WIDTH, HEIGHT, caption="CHIP-8 Emulator")
 batch = pyglet.graphics.Batch()
+keypad = Keypad()
+cpu = CPU(keypad)
+cpu.memory.load_rom("./ROMs/3-corax+.ch8")
+
+window.push_handlers(
+    on_key_press=keypad.on_key_press,
+    on_key_release=keypad.on_key_release
+)
 
 # Create rectangles for pixels
-pixels = [[shapes.Rectangle(x*SCALE, HEIGHT - (y+1)*SCALE, SCALE, SCALE, color=(0, 0, 0), batch=batch)
+pixels = [[shapes.Rectangle(x*SCALE, HEIGHT - (y + 1) * SCALE, SCALE, SCALE, color=(0, 0, 0), batch=batch)
            for x in range(64)] for y in range(32)]
 
 def update(dt):
     # Run a few CPU cycles per frame to control speed
-    for _ in range(20):
+    for _ in range(60):
         cpu.cycle()
 
 @window.event

@@ -1,34 +1,25 @@
 from memory import Memory
 from display import Display
+import random
 
 class CPU:
 
-    def __init__(self):
+    def __init__(self, keypad):
         # start fresh
-        # self.clear()
-
         # =Memory=
         self.memory = Memory()
-
-        # registers
-        self.V = [0] * 8 * 2               # 16 8-bit register (VF usually for flags)
+        # =Registers=
+        self.V = [0] * 8 * 2                # 16 8-bit register (VF usually for flags)
         self.index = 0                      # index register: points to memory location
-
         # timers
-        self.delay_timer = 0                      # delay timer, ticks own at a rate of 60Hz to 0
-        self.sound_timer = 0                      # sound timer, beeps until 0
-
-        # other
+        self.delay_timer = 0                # delay timer, ticks own at a rate of 60Hz to 0
+        self.sound_timer = 0                # sound timer, beeps until 0
+        # =opcode stuff=
         self.stack = []                     # 16-bit addresses for subroutines/functions
         self.PC = 0x200                     # points to current instruction in memory starts at 0x200 (usually)
         self.opcode = 0                     # blank state
-        
-
-        # input/keypresses
-        self.key_inputs = [0] * 16          # 1 2 3 C  <- typical layout  1 2 3 4
-                                            # 4 5 6 D       modern ->     Q W E R   
-                                            # 7 8 9 E                     A S D F
-                                            # A 0 B F                     Z X C V   
+        # =Keypad=
+        self.keypad = keypad
         # =Display=
         self.display = Display()
 
@@ -42,15 +33,45 @@ class CPU:
             0x5000: lambda opcode: self.opcode_5((opcode >> 8) & 0xF, (opcode >> 4) & 0xF),
             0x6000: lambda opcode: self.opcode_6((opcode >> 8) & 0xF, opcode & 0xFF),
             0x7000: lambda opcode: self.opcode_7((opcode >> 8) & 0xF, opcode & 0xFF),
-            0x8000: lambda opcode: self.opcode_8((opcode >> 12) & 0xF, (opcode >> 8) & 0xF, (opcode >> 4) & 0xF, opcode & 0xF),
+            0x8000: lambda opcode: self.opcode_8((opcode >> 8) & 0xF, (opcode >> 4) & 0xF, opcode & 0xF),
+            0x9000: lambda opcode: self.opcode_9((opcode >> 8) & 0xF, (opcode >> 4) & 0xF),
             0xA000: lambda opcode: self.opcode_A(opcode & 0xFFF),
             0xB000: lambda opcode: self.opcode_B(opcode & 0xFFF),
             0xC000: lambda opcode: self.opcode_C((opcode >> 8) & 0xF, opcode & 0xFF),
             0xD000: lambda opcode: self.opcode_D((opcode >> 8) & 0xF, (opcode >> 4) & 0xF, opcode & 0xF),
-            0xE000: lambda opcode: self.opcode_E((opcode >> 8) & 0xF),
-            0xF000: lambda opcode: self.opcode_F((opcode >> 8) & 0xF, opcode & 0xFF),
+            0xE000: lambda opcode: self.opcode_E((opcode & 0x00FF), (opcode >> 8) & 0xF),
+            0xF000: lambda opcode: self.opcode_F((opcode & 0x00FF), (opcode >> 8) & 0xF),
         }
-
+        self.opcode_0_dispatch = {
+            0x00E0: self.display.clear,
+            0x00EE: self.return_from_subroutine,
+        }
+        self.opcode_8_dispatch = {
+            0x0: lambda X, Y: self.V.__setitem__(X, self.V[Y]),
+            0x1: lambda X, Y: self.V.__setitem__(X, self.V[X] | self.V[Y]),
+            0x2: lambda X, Y: self.V.__setitem__(X, self.V[X] & self.V[Y]),
+            0x3: lambda X, Y: self.V.__setitem__(X, self.V[X] ^ self.V[Y]), 
+            0x4: lambda X, Y: self._add_with_carry(X, Y), 
+            0x5: lambda X, Y: self._sub_with_borrow(X, Y), 
+            0x6: lambda X, Y: self._shift_right(X), 
+            0x7: lambda X, Y: self._reverse_sub(X, Y), 
+            0xE: lambda X, Y: self._shift_left(X),
+        }
+        self.opcode_E_dispatch = {
+            0x009E: self._pressed_skip,
+            0x00A1: self._unpressed_skip,
+        }
+        self.opcode_F_dispatch = {
+            0x0007: lambda X: self.V.__setitem__(X, self.delay_timer),
+            0x000A: lambda X: self.V.__setitem__(X, self.keypad.on_key_press),
+            0x0015: lambda X: setattr(self, "delay_timer", self.V[X]),
+            0x0018: lambda X: setattr(self, "sound_timer", self.V[X]),
+            0x001E: lambda X: setattr(self, "index", self.index + self.V[X]),
+            0x0029: lambda X: setattr(self, "index", 5 * self.V[X]),
+            0x0033: lambda X: self._set_decimal(X),
+            0x0055: lambda X: self._write_memory(X),
+            0x0065: lambda X: self._read_memory(X),
+        }
     def load_rom(self, path):
         with open(path, "rb") as f:
             rom = f.read()
@@ -59,100 +80,118 @@ class CPU:
     def clear_screen(self):
         self.display_buffer = [[0] * 64 for _ in range(32)]
     def return_from_subroutine(self):
-        self.PC = self.stack.pop()              
-        return
-
-        
+        if not self.stack:
+            return False
+        self.PC = self.stack.pop()
+        return False
+    def _add_with_carry(self, X, Y):
+        sum = self.V[X] + self.V[Y]
+        self.V[0xF] = 1 if sum > 0xFF else 0
+        self.V[X] = sum & 0xFF
+    def _sub_with_borrow(self, X, Y):
+        self.V[0xF] = 1 if self.V[X] >= self.V[Y] else 0
+        self.V[X] = (self.V[X] - self.V[Y]) & 0xFF
+    def _shift_right(self, X):
+        self.V[0xF] = self.V[X] & 0x1
+        self.V[X] >>= 1
+    def _shift_left(self, X):
+        self.V[0xF] = (self.V[X] >> 7) & 0x1
+        self.V[X] = (self.V[X] << 1) & 0xFF 
+    def _reverse_sub(self, X, Y):
+        self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
+        self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
+    def _wait_for_key(self, X):
+        key = self.keypad.get_key_pressed()
+        self.V[X] = key
+    def _pressed_skip(self, X):
+        if self.keypad.is_key_press(self.V[X]):
+            self.PC += 4
+            return False
+    def _unpressed_skip(self, X):
+        if not self.keypad.is_key_pressed(self.V[X]):
+            self.PC += 4
+            return False
+    def _set_decimal(self, X):
+        value = self.V[X]
+        self.memory[self.index] = value // 100
+        self.memory[self.index + 1] = (value // 10) % 10
+        self.memory[self.index + 2] = value % 10
+    def _write_memory(self, X):
+        for i in range(X):
+            self.memory[self.index + i] = self.V[i]
+    def _read_memory(self, X):
+        for i in range(X + 1):
+            self.V[i] = self.memory[self.index + 1]
+    def _update_timers(self):
+        if self.delay_timer > 0:
+            self.delay_timer -= 1
+        if self.sound_timer > 0:
+            self.sound_timer -= 1
+            if self.sound_timer ==0:
+                #stop audio?
+                pass
         # =opcode family=
-    def opcode_0(self, opcode):
-        opcode_0_dispatch = {
-            0x00E0: self.clear_screen,
-            0x00EE: self.return_from_subroutine
-        }
-        if opcode in opcode_0_dispatch:
-            opcode_0_dispatch[opcode]()
+    def opcode_0(self, opcode): 
+        if opcode in self.opcode_0_dispatch:
+            self.opcode_0_dispatch[opcode]()
         else:
             pass
     def opcode_1(self, NNN):
-        self.PC = NNN
-        return
+        self.PC = NNN & 0xFFF
+        return False
     def opcode_2(self, NNN):
-        self.stack.append(self.PC + 2)
-        self.PC = NNN
-        return
+        self.stack.append(self.PC)
+        self.PC = NNN & 0xFFF
+        return False
     def opcode_3(self, X, NN):
         if self.V[X] == NN:
             self.PC += 4
-        return
+            return False
     def opcode_4(self, X, NN):
         if self.V[X] != NN:
             self.PC += 4
-        return
+            return False
     def opcode_5(self, X, Y):
         if self.V[X] == self.V[Y]:
             self.PC += 4
-        return
+            return False
     def opcode_6(self, X, NN):
-        self.V[X] = NN
+        self.V[X] = NN & 0xFF
     def opcode_7(self, X, NN):
-        self.V[X] = self.V[X] + NN
-    def opcode_8(self, M, X, Y, N):
-        def op_0():
-            self.V[X] = self.V[Y]
-        def op_1():
-            self.V[X] != self.V[Y]
-        def op_2():
-            self.V[X] &= self.V[Y]
-        def op_3():
-            self.V[X] ^= self.V[Y]
-        def op_4():
-            sum = self.V[X] + self.V[Y]
-            self.V[0xF] = 1 if sum > 0xFF else 0
-            self.V[X] = sum & 0xFF
-        def op_5():
-            self.V[0xF] = 1 if self.V[X] >= self.V[Y] else 0
-            self.V[X] -= self.V[Y] & 0xFF
-        def op_6():
-            self.V[X] = self.V[X] > 1
-            self.V[0xF] = N & 0xF
-        def op_7():
-            self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
-            self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
-        def op_E():
-            self.V[0xF] = (self.V[X] >> 7) & 0x1
-            self.V[X] = (self.V[X] << 1) & 0xFF  
-        opcode_8_dispatch = {
-            0: op_0, 1: op_1, 2: op_2, 3: op_3, 4: op_4, 5:op_5, 6:op_6, 7:op_7, 0xE:op_E,
-        }
-        if M in opcode_8_dispatch:
-            opcode_8_dispatch[M]()
+        self.V[X] = (self.V[X] + NN) & 0xFF
+    def opcode_8(self, X, Y, N): 
+        handler = self.opcode_8_dispatch.get(N)
+        if handler:
+            handler(X, Y)
+    def opcode_9(self, X, Y):
+        if self.V[X] != self.V[Y]:
+            self.PC += 4
+            return False
     def opcode_A(self, NNN):
-        self.index = NNN
+        self.index = NNN & 0xFFF
     def opcode_B(self, NNN):
-        self.PC = NNN + self.V[0]
+        self.PC = (NNN & 0xFFF) + self.V[0] & 0xFFF
     def opcode_C(self, X, NN):
-        self.V[X] = ((id(object()) * 37) % 256) & NN
+        self.V[X] = (random.randint(0, 255) & NN) & 0xFF
     def opcode_D(self, X, Y, N):
         x = self.V[X]
         y = self.V[Y]
         height = N
-
         sprite = [self.memory[self.index + i] for i in range(height)]
-
         collision = self.display.draw_sprite(x, y, sprite)
         self.V[0xF] = collision
-    def opcode_E(self, X): 
-        pass
-    def opcode_F(self, X, mask):
-        def op_07(self):
-            self.V[X] = self.delay_timer
-        def op_0A(self):
+    def opcode_E(self, subcode, X): 
+        if subcode in self.opcode_E_dispatch:
+            self.opcode_E_dispatch[subcode](X)
+        else:
+            pass
+    def opcode_F(self, subcode, X):
+        if subcode in self.opcode_F_dispatch:
+            self.opcode_F_dispatch[subcode](X)
+        else:
             pass
 
-        opcode_F_dispatch = {
-            0x07: op_07,
-            0x0A: op_0A,
-        }
+        
 
     
     def cycle(self):
@@ -161,6 +200,7 @@ class CPU:
         # =decode=
         mask = self.opcode & 0xF000
         # =execute=
+        if mask == 0x2000: print("2NNN executing:", hex(self.opcode))
         increment_PC = True
         handler = self.opcode_table.get(mask) 
         if handler:
@@ -170,13 +210,7 @@ class CPU:
             self.PC += 2
 
         # =update timers=
-        if self.delay_timer > 0:
-            self.delay_timer -= 1
-        if self.sound_timer > 0:
-            self.sound_timer -= 1
-            # play sound?
-
-      
+  
         
 
         

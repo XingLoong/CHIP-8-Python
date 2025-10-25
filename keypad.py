@@ -1,0 +1,35 @@
+import pyglet
+from pyglet.window import key
+   # 1 2 3 C  <- typical layout  1 2 3 4
+   # 4 5 6 D       modern ->     Q W E R   
+   # 7 8 9 E                     A S D F
+   # A 0 B F                     Z X C V 
+KEY_MAP = {
+    key._1: 0x1, key._2: 0x2, key._3: 0x3, key._4: 0xC,
+    key.Q: 0x4, key.W: 0x5, key.E: 0x6, key.R: 0xD,
+    key.A: 0x7, key.S: 0x8, key.D: 0x9, key.F: 0xE,
+    key.Z: 0xA, key.X: 0x0, key.C: 0xB, key.V: 0xF,
+}
+
+class Keypad:
+    def __init__(self):
+        self.keys = [False] * 16
+
+        self.key_map = KEY_MAP
+
+    def on_key_press(self, symbol, modifiers):
+        if symbol in self.key_map:
+            self.keys[self.key_map[symbol]] = True
+
+    def on_key_release(self, symbol, modifiers):
+        if symbol in self.key_map:
+            self.keys[self.key_map[symbol]] = False
+
+    def is_key_pressed(self, chip8_key):
+        return self.keys[chip8_key]
+    
+    def get_pressed_key(self):
+        for i, pressed in enumerate(self.keys):
+            if pressed:
+                return 1
+            return None

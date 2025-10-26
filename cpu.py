@@ -85,25 +85,32 @@ class CPU:
         self.PC = self.stack.pop()
         return False
     def _add_with_carry(self, X, Y):
-        self.V[X] = self.V[X] + self.V[Y] & 0xFF
-        self.V[0xF] = 1 if self.V[X] + self.V[Y] > 0xFF else 0
+        sum = self.V[X] + self.V[Y]
+        self.V[X] = sum & 0xFF
+        self.V[0xF] = 1 if sum > 0xFF else 0
     def _sub_with_borrow(self, X, Y):
-        self.V[0xF] = 1 if self.V[X] >= self.V[Y] else 0
-        self.V[X] = (self.V[X] - self.V[Y]) & 0xFF
+        diff = self.V[X] - self.V[Y]
+        temp = self.V[X]
+        self.V[X] = diff & 0xFF
+        self.V[0xF] = 1 if temp >= self.V[Y] else 0
     def _reverse_sub(self, X, Y):
-        self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
-        self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
+        diff = self.V[Y] - self.V[X]
+        temp = self.V[X]
+        self.V[X] = diff & 0xFF
+        self.V[0xF] = 1 if self.V[Y] >= temp else 0
     def _shift_right(self, X):
-        self.V[0xF] = self.V[X] & 0x1
+        temp = self.V[X]
         self.V[X] >>= 1
+        self.V[0xF] = temp & 0x1 
     def _shift_left(self, X):
-        self.V[0xF] = (self.V[X] >> 7) & 0x1
+        temp = self.V[X]
         self.V[X] = (self.V[X] << 1) & 0xFF 
+        self.V[0xF] = (temp >> 7) & 0x1
     def _wait_for_key(self, X):
         key = self.keypad.get_key_pressed()
         self.V[X] = key
     def _pressed_skip(self, X):
-        if self.keypad.is_key_press(self.V[X]):
+        if self.keypad.is_key_pressed(self.V[X]):
             self.PC += 4
             return False
     def _unpressed_skip(self, X):

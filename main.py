@@ -11,7 +11,7 @@ window = pyglet.window.Window(WIDTH, HEIGHT, caption="CHIP-8 Emulator")
 batch = pyglet.graphics.Batch()
 keypad = Keypad()
 cpu = CPU(keypad)
-cpu.memory.load_rom("./ROMs/3-corax+.ch8")
+cpu.memory.load_rom("./ROMs/5-quirks.ch8")
 
 window.push_handlers(
     on_key_press=keypad.on_key_press,

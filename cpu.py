@@ -33,7 +33,7 @@ class CPU:
             0x5000: lambda opcode: self.opcode_5((opcode >> 8) & 0xF, (opcode >> 4) & 0xF),
             0x6000: lambda opcode: self.opcode_6((opcode >> 8) & 0xF, opcode & 0xFF),
             0x7000: lambda opcode: self.opcode_7((opcode >> 8) & 0xF, opcode & 0xFF),
-            0x8000: lambda opcode: self.opcode_8((opcode >> 8) & 0xF, (opcode >> 4) & 0xF, opcode & 0xF),
+            0x8000: lambda opcode: self.opcode_8((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4, opcode & 0xF),
             0x9000: lambda opcode: self.opcode_9((opcode >> 8) & 0xF, (opcode >> 4) & 0xF),
             0xA000: lambda opcode: self.opcode_A(opcode & 0xFFF),
             0xB000: lambda opcode: self.opcode_B(opcode & 0xFFF),
@@ -66,8 +66,8 @@ class CPU:
             0x000A: lambda X: self.V.__setitem__(X, self.keypad.on_key_press),
             0x0015: lambda X: setattr(self, "delay_timer", self.V[X]),
             0x0018: lambda X: setattr(self, "sound_timer", self.V[X]),
-            0x001E: lambda X: setattr(self, "index", self.index + self.V[X]),
-            0x0029: lambda X: setattr(self, "index", 5 * self.V[X]),
+            0x001E: lambda X: setattr(self, 'index', (self.index + self.V[X]) & 0xFFF),
+            0x0029: lambda X: setattr(self, 'index', (5 * self.V[X]) & 0xFFF),
             0x0033: lambda X: self._set_decimal(X),
             0x0055: lambda X: self._write_memory(X),
             0x0065: lambda X: self._read_memory(X),
@@ -85,21 +85,20 @@ class CPU:
         self.PC = self.stack.pop()
         return False
     def _add_with_carry(self, X, Y):
-        sum = self.V[X] + self.V[Y]
-        self.V[0xF] = 1 if sum > 0xFF else 0
-        self.V[X] = sum & 0xFF
+        self.V[X] = self.V[X] + self.V[Y] & 0xFF
+        self.V[0xF] = 1 if self.V[X] + self.V[Y] > 0xFF else 0
     def _sub_with_borrow(self, X, Y):
         self.V[0xF] = 1 if self.V[X] >= self.V[Y] else 0
         self.V[X] = (self.V[X] - self.V[Y]) & 0xFF
+    def _reverse_sub(self, X, Y):
+        self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
+        self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
     def _shift_right(self, X):
         self.V[0xF] = self.V[X] & 0x1
         self.V[X] >>= 1
     def _shift_left(self, X):
         self.V[0xF] = (self.V[X] >> 7) & 0x1
         self.V[X] = (self.V[X] << 1) & 0xFF 
-    def _reverse_sub(self, X, Y):
-        self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
-        self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
     def _wait_for_key(self, X):
         key = self.keypad.get_key_pressed()
         self.V[X] = key
@@ -117,11 +116,11 @@ class CPU:
         self.memory[self.index + 1] = (value // 10) % 10
         self.memory[self.index + 2] = value % 10
     def _write_memory(self, X):
-        for i in range(X):
+        for i in range(X + 1):
             self.memory[self.index + i] = self.V[i]
     def _read_memory(self, X):
         for i in range(X + 1):
-            self.V[i] = self.memory[self.index + 1]
+            self.V[i] = self.memory[self.index + i]
     def _update_timers(self):
         if self.delay_timer > 0:
             self.delay_timer -= 1
@@ -184,12 +183,12 @@ class CPU:
         if subcode in self.opcode_E_dispatch:
             self.opcode_E_dispatch[subcode](X)
         else:
-            pass
+            return
     def opcode_F(self, subcode, X):
         if subcode in self.opcode_F_dispatch:
             self.opcode_F_dispatch[subcode](X)
         else:
-            pass
+            return
 
         
 
@@ -200,7 +199,6 @@ class CPU:
         # =decode=
         mask = self.opcode & 0xF000
         # =execute=
-        if mask == 0x2000: print("2NNN executing:", hex(self.opcode))
         increment_PC = True
         handler = self.opcode_table.get(mask) 
         if handler:

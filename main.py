@@ -7,11 +7,11 @@ SCALE = 10
 WIDTH = 64 * SCALE
 HEIGHT = 32 * SCALE
 
-window = pyglet.window.Window(WIDTH, HEIGHT, caption="CHIP-8 Emulator")
-batch = pyglet.graphics.Batch()
 keypad = Keypad()
 cpu = CPU(keypad)
-cpu.memory.load_rom("./ROMs/5-quirks.ch8")
+
+window = pyglet.window.Window(WIDTH, HEIGHT, caption="CHIP-8 Emulator")
+batch = pyglet.graphics.Batch()
 
 window.push_handlers(
     on_key_press=keypad.on_key_press,
@@ -22,10 +22,12 @@ window.push_handlers(
 pixels = [[shapes.Rectangle(x*SCALE, HEIGHT - (y + 1) * SCALE, SCALE, SCALE, color=(0, 0, 0), batch=batch)
            for x in range(64)] for y in range(32)]
 
+cpu.memory.load_rom("./ROMs/5-quirks.ch8")
+
+
 def update(dt):
     # Run a few CPU cycles per frame to control speed
-    for _ in range(60):
-        cpu.cycle()
+    cpu.cycle()
 
 @window.event
 

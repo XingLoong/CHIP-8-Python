@@ -27,7 +27,8 @@ cpu.memory.load_rom("./ROMs/5-quirks.ch8")
 
 def update(dt):
     # Run a few CPU cycles per frame to control speed
-    cpu.cycle()
+    for _ in range(10):
+        cpu.cycle()
 
 @window.event
 

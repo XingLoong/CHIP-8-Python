@@ -83,10 +83,8 @@ class CPU:
                 self.delay_timer -= 1
             if self.sound_timer > 0:
                 self.sound_timer -= 1
-                if self.sound_timer == 0:
-                    #stop audio?
-                    pass
             self.last_timer_update = now
+        return self.sound_timer > 0
     def load_rom(self, path):
         with open(path, "rb") as f:
             rom = f.read()

@@ -14,6 +14,7 @@ class Keypad:
     def __init__(self):
         self.keys = [False] * 16
         self.last_pressed = None
+        self.last_released = None
         self.key_map = KEY_MAP
 
     def on_key_press(self, symbol, modifiers):
@@ -22,13 +23,12 @@ class Keypad:
             key_id = self.key_map[symbol]
             self.keys[key_id] = True
             self.last_pressed = key_id
-            print(f"Key pressed: {hex(key_id)}")
 
     def on_key_release(self, symbol, modifiers):
         if symbol in self.key_map:
             key_id = self.key_map[symbol]
             self.keys[key_id] = False
-            print(f"Key released: {hex(key_id)}")
+            self.last_released = key_id
 
     def is_key_pressed(self, chip8_key):
         if not isinstance(chip8_key, int):
@@ -43,3 +43,11 @@ class Keypad:
             self.last_pressed = None
             return key
         return None
+    
+    def get_released_key(self):
+        if self.last_released is not None:
+            key = self.last_released
+            self.last_released = None
+            return key
+        return None
+    

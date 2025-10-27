@@ -22,26 +22,31 @@ window.push_handlers(
 pixels = [[shapes.Rectangle(x*SCALE, HEIGHT - (y + 1) * SCALE, SCALE, SCALE, color=(0, 0, 0), batch=batch)
            for x in range(64)] for y in range(32)]
 
-cpu.memory.load_rom("./ROMs/5-quirks.ch8")
+cpu.memory.load_rom("./ROMs/6-keypad.ch8")
+
+def update_timers(dt):
+    cpu.decrease_timer()
 
 
-def update(dt):
-    # Run a few CPU cycles per frame to control speed
-    for _ in range(10):
-        cpu.cycle()
 
 @window.event
 
-def on_draw():
+def update(dt):
+    # Run a few CPU cycles per frame to control speed
+    cpu.decrease_timer()
+    for _ in range(11):
+        cpu.cycle()
+        if cpu.draw_flag:
+            break
+    if cpu.draw_flag:
+        for y in range(32):
+            for x in range(64):
+                pixels[y][x].color = (255, 255, 255) if cpu.display.buffer[y][x] else (0, 0, 0)
+        cpu.draw_flag = False
+
     window.clear()
-    # Update screen based on display buffer
-    for y in range(32):
-        for x in range(64):
-            if cpu.display.buffer[y][x]:
-                pixels[y][x].color = (255, 255, 255)
-            else:
-                pixels[y][x].color = (0, 0, 0)
     batch.draw()
 
+pyglet.clock.schedule_interval(update_timers, 1/60.0)
 pyglet.clock.schedule_interval(update, 1/60.0)  # 60 FPS
 pyglet.app.run()

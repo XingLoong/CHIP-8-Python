@@ -1,6 +1,7 @@
 from memory import Memory
 from display import Display
 import random
+import time
 
 class CPU:
 
@@ -14,15 +15,18 @@ class CPU:
         # timers
         self.delay_timer = 0                # delay timer, ticks own at a rate of 60Hz to 0
         self.sound_timer = 0                # sound timer, beeps until 0
+        self.last_timer_update = time.time()
         # =opcode stuff=
         self.stack = []                     # 16-bit addresses for subroutines/functions
         self.PC = 0x200                     # points to current instruction in memory starts at 0x200 (usually)
         self.opcode = 0                     # blank state
         # =Keypad=
         self.keypad = keypad
+        self.waiting_for_key = False
+        self.waiting_register = None
         # =Display=
         self.display = Display()
-
+        self.draw_flag = False
         # =Opcodes=
         self.opcode_table = {
             0x0000: lambda opcode: self.opcode_0(opcode),
@@ -48,14 +52,14 @@ class CPU:
         }
         self.opcode_8_dispatch = {
             0x0: lambda X, Y: self.V.__setitem__(X, self.V[Y]),
-            0x1: lambda X, Y: self.V.__setitem__(X, self.V[X] | self.V[Y]),
-            0x2: lambda X, Y: self.V.__setitem__(X, self.V[X] & self.V[Y]),
-            0x3: lambda X, Y: self.V.__setitem__(X, self.V[X] ^ self.V[Y]), 
+            0x1: lambda X, Y: self._set_or(X, Y),
+            0x2: lambda X, Y: self._set_and(X, Y),
+            0x3: lambda X, Y: self._set_xor(X, Y), 
             0x4: lambda X, Y: self._add_with_carry(X, Y), 
             0x5: lambda X, Y: self._sub_with_borrow(X, Y), 
-            0x6: lambda X, Y: self._shift_right(X), 
+            0x6: lambda X, Y: self._shift_right(X, Y), 
             0x7: lambda X, Y: self._reverse_sub(X, Y), 
-            0xE: lambda X, Y: self._shift_left(X),
+            0xE: lambda X, Y: self._shift_left(X, Y),
         }
         self.opcode_E_dispatch = {
             0x009E: self._pressed_skip,
@@ -72,6 +76,17 @@ class CPU:
             0x0055: lambda X: self._write_memory(X),
             0x0065: lambda X: self._read_memory(X),
         }
+    def decrease_timer(self):
+        now = time.time()
+        if now - self.last_timer_update >= 1/60:
+            if self.delay_timer > 0:
+                self.delay_timer -= 1
+            if self.sound_timer > 0:
+                self.sound_timer -= 1
+                if self.sound_timer == 0:
+                    #stop audio?
+                    pass
+            self.last_timer_update = now
     def load_rom(self, path):
         with open(path, "rb") as f:
             rom = f.read()
@@ -84,6 +99,15 @@ class CPU:
             return False
         self.PC = self.stack.pop()
         return False
+    def _set_or(self, X, Y):
+        self.V[X] |= self.V[Y]
+        self.V[0xF] = 0
+    def _set_and(self, X, Y):
+        self.V[X] &= self.V[Y]
+        self.V[0xF] = 0
+    def _set_xor(self, X, Y):
+        self.V[X] ^= self.V[Y]
+        self.V[0xF] = 0
     def _add_with_carry(self, X, Y):
         sum = self.V[X] + self.V[Y]
         self.V[X] = sum & 0xFF
@@ -98,24 +122,38 @@ class CPU:
         temp = self.V[X]
         self.V[X] = diff & 0xFF
         self.V[0xF] = 1 if self.V[Y] >= temp else 0
-    def _shift_right(self, X):
-        temp = self.V[X]
+    def _shift_right(self, X, Y):
+        self.V[X] = self.V[Y]
         self.V[X] >>= 1
-        self.V[0xF] = temp & 0x1 
-    def _shift_left(self, X):
-        temp = self.V[X]
+        self.V[0xF] = self.V[Y] & 0x1
+    def _shift_left(self, X, Y):
+        self.V[X] = self.V[Y]
         self.V[X] = (self.V[X] << 1) & 0xFF 
-        self.V[0xF] = (temp >> 7) & 0x1
+        self.V[0xF] = (self.V[Y] >> 7) & 0x1
     def _wait_for_key(self, X):
-        key = self.keypad.get_pressed_key()
-        if key is None:
-            # no key yet — stall CPU
-            print(f"Waiting for key... V[{X}]")
-            return False  
-        # key pressed — store and continue
-        self.V[X] = key
-        print(f"Key {key:X} pressed -> stored in V[{X}]")
-        return True
+        if not self.waiting_for_key:
+            self.waiting_for_key = True
+            self.waiting_register = None
+            # clear last events so we only react to new ones
+            self.keypad.last_pressed = None
+            self.keypad.last_released = None
+            return False
+        released = self.keypad.get_released_key()
+        if released is not None:
+            # If we previously recorded which key was pressed, only accept matching release.
+            # If we didn't record (press+release happened between cycles), accept released.
+            if (self.waiting_register is None) or (released == self.waiting_register):
+                self.V[X] = released & 0xF
+                self.waiting_for_key = False
+                self.waiting_register = None
+                return True
+            # release for a different key -> keep waiting
+            return False
+        # No release yet. If a new press happened, record it and continue waiting for its release.
+        pressed = self.keypad.get_pressed_key()
+        if pressed is not None:
+            self.waiting_register = pressed
+        return False
     def _pressed_skip(self, X):
         if self.keypad.is_key_pressed(self.V[X] & 0xF):
             self.PC += 2
@@ -125,16 +163,18 @@ class CPU:
             self.PC += 2
         return False
     def _set_decimal(self, X):
-        value = self.V[X] & 0xFF
+        value = self.V[X] & 0xFFF
         self.memory[self.index] = value // 100
         self.memory[self.index + 1] = (value // 10) % 10
         self.memory[self.index + 2] = value % 10
     def _write_memory(self, X):
         for i in range(X + 1):
             self.memory[self.index + i] = self.V[i]
+        self.index += X + 1
     def _read_memory(self, X):
         for i in range(X + 1):
             self.V[i] = (self.memory[self.index + i]) & 0xFF       
+        self.index += X + 1
         # =opcode family=
     def opcode_0(self, opcode): 
         if opcode in self.opcode_0_dispatch:
@@ -175,16 +215,17 @@ class CPU:
     def opcode_A(self, NNN):
         self.index = NNN & 0xFFF
     def opcode_B(self, NNN):
-        self.PC = (NNN & 0xFFF) + self.V[0] & 0xFFF
+        self.PC = (NNN + self.V[0]) & 0xFFF
+        return False
     def opcode_C(self, X, NN):
         self.V[X] = (random.randint(0, 255) & NN) & 0xFF
     def opcode_D(self, X, Y, N):
         x = self.V[X] & 0xFF
         y = self.V[Y] & 0xFF
-        height = N
-        sprite = [self.memory[self.index + i] for i in range(height)]
-        collision = self.display.draw_sprite(x, y, sprite)
-        self.V[0xF] = collision
+        self.V[0xF] = 0
+        sprite = [self.memory[self.index + i] for i in range(N)]  #N is height
+        self.V[0xF] = self.display.draw_sprite(x, y, sprite)
+        self.draw_flag = True
     def opcode_E(self, subcode, X): 
         if subcode in self.opcode_E_dispatch:
             self.opcode_E_dispatch[subcode](X)
@@ -209,14 +250,6 @@ class CPU:
         # =Update PC=
         if increment_PC:
             self.PC += 2
-        # =update timers=
-        if self.delay_timer > 0:
-            self.delay_timer -= 1
-        if self.sound_timer > 0:
-            self.sound_timer -= 1
-            if self.sound_timer ==0:
-                #stop audio?
-                pass
-        
+
 
         

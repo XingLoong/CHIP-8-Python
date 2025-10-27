@@ -6,7 +6,6 @@ import time
 class CPU:
 
     def __init__(self, keypad):
-        # start fresh
         # =Memory=
         self.memory = Memory()
         # =Registers=
@@ -121,13 +120,15 @@ class CPU:
         self.V[X] = diff & 0xFF
         self.V[0xF] = 1 if self.V[Y] >= temp else 0
     def _shift_right(self, X, Y):
+        temp = self.V[Y]
         self.V[X] = self.V[Y]
         self.V[X] >>= 1
-        self.V[0xF] = self.V[Y] & 0x1
+        self.V[0xF] = temp & 0x1
     def _shift_left(self, X, Y):
+        temp = self.V[Y]
         self.V[X] = self.V[Y]
         self.V[X] = (self.V[X] << 1) & 0xFF 
-        self.V[0xF] = (self.V[Y] >> 7) & 0x1
+        self.V[0xF] = (temp >> 7) & 0x1
     def _wait_for_key(self, X):
         if not self.waiting_for_key:
             self.waiting_for_key = True
@@ -138,16 +139,13 @@ class CPU:
             return False
         released = self.keypad.get_released_key()
         if released is not None:
-            # If we previously recorded which key was pressed, only accept matching release.
-            # If we didn't record (press+release happened between cycles), accept released.
-            if (self.waiting_register is None) or (released == self.waiting_register):
+            if (self.waiting_register is None) or (released == self.waiting_register):  # compare current and previous states during a frame
                 self.V[X] = released & 0xF
                 self.waiting_for_key = False
                 self.waiting_register = None
                 return True
-            # release for a different key -> keep waiting
-            return False
-        # No release yet. If a new press happened, record it and continue waiting for its release.
+            return False  # wait for release
+        # No release yet. If a new press happened, record wait for release
         pressed = self.keypad.get_pressed_key()
         if pressed is not None:
             self.waiting_register = pressed

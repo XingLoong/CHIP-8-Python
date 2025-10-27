@@ -18,7 +18,6 @@ class Keypad:
         self.key_map = KEY_MAP
 
     def on_key_press(self, symbol, modifiers):
-        print(f"Key pressed raw symbol: {symbol}")
         if symbol in self.key_map:
             key_id = self.key_map[symbol]
             self.keys[key_id] = True

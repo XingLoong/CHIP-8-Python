@@ -1,6 +1,4 @@
 import pyglet
-import math
-import array
 from pyglet import shapes
 from cpu import CPU
 from keypad import Keypad
@@ -24,7 +22,7 @@ window.push_handlers(
 pixels = [[shapes.Rectangle(x*SCALE, HEIGHT - (y + 1) * SCALE, SCALE, SCALE, color=(0, 0, 0), batch=batch)
            for x in range(64)] for y in range(32)]
 
-cpu.memory.load_rom("./ROMs/7-beep.ch8")
+cpu.memory.load_rom("./ROMs/Pong.ch8")
 
 def make_sound(frequency, duration, volume):
     tone = pyglet.media.synthesis.Square(duration, frequency)

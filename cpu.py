@@ -70,7 +70,7 @@ class CPU:
             0x0015: lambda X: setattr(self, "delay_timer", self.V[X]),
             0x0018: lambda X: setattr(self, "sound_timer", self.V[X]),
             0x001E: lambda X: setattr(self, 'index', (self.index + self.V[X]) & 0xFFF),
-            0x0029: lambda X: setattr(self, 'index', (5 * self.V[X]) & 0xFFF),
+            0x0029: lambda X: setattr(self, 'index', ((5 * self.V[X]) & 0xFFF) + 0x050),
             0x0033: lambda X: self._set_decimal(X),
             0x0055: lambda X: self._write_memory(X),
             0x0065: lambda X: self._read_memory(X),

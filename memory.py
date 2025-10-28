@@ -6,6 +6,7 @@ class Memory:
         # memory
         self.memory = [0] * 16 * 16 * 16    # 0x000 - 0xFFF
         self.fontset = FONTSET
+        self.load_fontset()
 
     def __getitem__(self, addr):
         return self.memory[addr]
@@ -13,7 +14,7 @@ class Memory:
     def __setitem__(self, addr, value):
         self.memory[addr] = value
 
-    def load_fontset(self, start = 0x050):
+    def load_fontset(self, start = 0x50):
         for i, byte in enumerate(self.fontset):
             self.memory[start + i] = byte
 
